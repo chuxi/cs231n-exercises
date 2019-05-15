@@ -270,7 +270,7 @@ class FullyConnectedNet(object):
         ############################################################################
         # *****START OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
         hidden_layers, caches = list(range(self.num_layers + 1)), list(range(self.num_layers))
-        dp_caches = range(self.num_layers - 1)
+        dp_caches = list(range(self.num_layers - 1))
         hidden_layers[0] = X
         for i in range(self.num_layers):
             W, b = self.params['W' + str(i+1)], self.params['b' + str(i+1)]

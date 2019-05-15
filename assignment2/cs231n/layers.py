@@ -322,6 +322,15 @@ def batchnorm_backward_alt(dout, cache):
     # single statement; our implementation fits on a single 80-character line.#
     ###########################################################################
     # *****START OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
+    x, gamma, beta, x_hat, sample_mean, sample_var, eps = cache
+    m = dout.shape[0]
+    dxhat = dout * gamma
+    dvar = (dxhat * (x-sample_mean) * (-0.5) * np.power(sample_var+eps, -1.5)).sum(axis=0)
+    dmean = np.sum(dxhat * (-1) * np.power(sample_var + eps, -0.5), axis=0)
+    dmean += dvar * np.sum(-2 * (x - sample_mean), axis=0) / m
+    dx = dxhat * np.power(sample_var + eps, -0.5) + dvar*2*(x - sample_mean) / m + dmean / m
+    dgamma = np.sum(dout * x_hat, axis=0)
+    dbeta = np.sum(dout, axis=0)
 
     pass
 
@@ -452,6 +461,9 @@ def dropout_forward(x, dropout_param):
         # Store the dropout mask in the mask variable.                        #
         #######################################################################
         # *****START OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
+        mask = np.random.rand(*x.shape) < (1 - p)
+        mask = mask / (1 - p)
+        out = mask * x
 
         pass
 
@@ -464,6 +476,7 @@ def dropout_forward(x, dropout_param):
         # TODO: Implement the test phase forward pass for inverted dropout.   #
         #######################################################################
         # *****START OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
+        out = x
 
         pass
 
@@ -495,6 +508,7 @@ def dropout_backward(dout, cache):
         # TODO: Implement training phase backward pass for inverted dropout   #
         #######################################################################
         # *****START OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
+        dx = dout * mask
 
         pass
 
@@ -541,6 +555,21 @@ def conv_forward_naive(x, w, b, conv_param):
     # Hint: you can use the function np.pad for padding.                      #
     ###########################################################################
     # *****START OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
+    pad, stride = conv_param['pad'], conv_param['stride']
+    x_padded = np.pad(x, ((0,),(0,),(pad,),(pad,)), 'constant')
+    N, C, H, W = x.shape
+    F, C, HH, WW = w.shape
+    output_height = 1 + (H + 2 * pad - HH) // stride
+    output_width = 1 + (W + 2 * pad - WW) // stride
+    out = np.zeros((N, F, output_height, output_width))
+    
+    for i in range(output_height):
+        for j in range(output_width):
+            x_padded_mask = x_padded[:, :, i*stride:i*stride+HH, j*stride:j*stride+WW]
+            for k in range(F):
+                out[:, k, i, j] = np.sum(x_padded_mask * w[k, :, :, :], axis=(1,2,3))
+    out = out + (b)[None, :, None, None]
+    
 
     pass
 
@@ -570,7 +599,34 @@ def conv_backward_naive(dout, cache):
     # TODO: Implement the convolutional backward pass.                        #
     ###########################################################################
     # *****START OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
+    x, w, b, conv_param = cache
 
+    N, C, H, W = x.shape
+    F, _, HH, WW = w.shape
+    stride, pad = conv_param['stride'], conv_param['pad']
+    
+    H_out = 1 + (H + 2 * pad - HH) // stride
+    W_out = 1 + (W + 2 * pad - WW) // stride
+    
+    x_pad = np.pad(x, ((0,), (0,), (pad,), (pad,)), mode='constant', constant_values=0)
+    dx = np.zeros_like(x)
+    dx_pad = np.zeros_like(x_pad)
+    dw = np.zeros_like(w)
+    db = np.zeros_like(b)
+    
+    db = np.sum(dout, axis=(0, 2, 3))
+    
+    x_pad = np.pad(x, ((0,), (0,), (pad,), (pad,)), mode='constant', constant_values=0)
+    for i in range(H_out):
+        for j in range(W_out):
+            x_pad_masked = x_pad[:, :, i*stride:i*stride+HH, j*stride:j*stride+WW]
+            for k in range(F):
+                dw[k,:,:,:] += np.sum(x_pad_masked*(dout[:,k,i,j])[:,None,None,None], axis=0)
+            for n in range(N):
+                dx_pad[n,:,i*stride:i*stride+HH, j*stride:j*stride+WW] += np.sum((w[:, :, :, :] * (dout[n, :, i, j])[:,None ,None, None]), axis=0)
+            
+    
+    dx = dx_pad[:,:,pad:-pad,pad:-pad]
     pass
 
     # *****END OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
@@ -604,7 +660,16 @@ def max_pool_forward_naive(x, pool_param):
     # TODO: Implement the max-pooling forward pass                            #
     ###########################################################################
     # *****START OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
-
+    N, C, H, W = x.shape
+    pool_height, pool_width, stride = pool_param['pool_height'], pool_param['pool_width'], pool_param['stride']
+    out_height = H // pool_height
+    out_width = W // pool_width
+    out = np.zeros((N, C, out_height, out_width))
+    for i in range(out_height):
+        for j in range(out_width):
+            mask = x[:, :, i*stride:i*stride+pool_height, j*stride:j*stride+pool_width]
+            out[:, :, i, j] = np.max(mask, axis=(2, 3))
+    
     pass
 
     # *****END OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
@@ -631,6 +696,20 @@ def max_pool_backward_naive(dout, cache):
     # TODO: Implement the max-pooling backward pass                           #
     ###########################################################################
     # *****START OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
+    x, pool_param = cache
+    N, C, H, W = x.shape
+    pool_height, pool_width, stride = pool_param['pool_height'], pool_param['pool_width'], pool_param['stride']
+    out_height = H // pool_height
+    out_width = W // pool_width
+    dx = np.zeros_like(x)
+    
+    for i in range(out_height):
+        for j in range(out_width):
+            x_mask = x[:, :, i*stride:i*stride+pool_height, j*stride:j*stride+pool_width]
+            dx_mask = dx[:, :, i*stride:i*stride+pool_height, j*stride:j*stride+pool_width]
+          # flags: only the max value is True, others are False
+            flags = np.max(x_mask, axis=(2, 3), keepdims=True) == x_mask
+            dx_mask += flags * (dout[:, :, i, j])[:, :, None, None]
 
     pass
 
